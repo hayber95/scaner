@@ -3,69 +3,79 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Document Scanner with OpenCV.js</title>
+    <title>Document Scanner with Camera</title>
+    <style>
+        #video, #canvasOutput {
+            width: 100%;
+            height: auto;
+        }
+        #captureButton {
+            display: block;
+            margin: 20px auto;
+            padding: 10px 20px;
+            font-size: 16px;
+        }
+        #error {
+            color: red;
+            text-align: center;
+        }
+    </style>
 </head>
 <body>
 
-<h1>Document Scanner with OpenCV.js</h1>
-
-<!-- Video for camera feed -->
-<video id="video" autoplay playsinline style="display: none;"></video>
-<!-- Canvas to display the processed image -->
+<h2>Document Scanner</h2>
+<!-- Video element for camera preview -->
+<video id="video" autoplay playsinline></video>
+<!-- Canvas to display the scanned image -->
 <canvas id="canvasOutput"></canvas>
 <!-- Button to capture the document -->
-<button onclick="processImage()">Capture Document</button>
+<button id="captureButton">Capture Document</button>
+<p id="error"></p>
 
 <script async src="https://docs.opencv.org/4.x/opencv.js" type="text/javascript"></script>
 <script>
-    // Wait for OpenCV to load
-    function onOpenCvReady() {
-        alert('OpenCV.js is ready');
-        initCamera();
+    async function openCamera() {
+        try {
+            const video = document.getElementById('video');
+            // Solicitar acceso a la cámara
+            const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+            video.srcObject = stream;  // Mostrar el video en el elemento de video
+        } catch (error) {
+            // Mostrar un mensaje de error en caso de que falle el acceso a la cámara
+            document.getElementById('error').textContent = "Error accessing the camera: " + error.message;
+        }
     }
 
-    // Initialize the camera
-    function initCamera() {
-        const video = document.getElementById('video');
-        navigator.mediaDevices.getUserMedia({ video: true }).then(stream => {
-            video.srcObject = stream;
-            video.play();
-        }).catch(error => {
-            alert("Error accessing the camera:", error);
-        });
-    }
-
-    // Process the captured image to detect and adjust the document
-    function processImage() {
+    function captureAndProcess() {
         const video = document.getElementById('video');
         const canvas = document.getElementById('canvasOutput');
         const ctx = canvas.getContext('2d');
         const width = video.videoWidth;
         const height = video.videoHeight;
 
-        // Set canvas size to match the video feed
+        // Configurar el tamaño del canvas para que coincida con el video
         canvas.width = width;
         canvas.height = height;
 
-        // Draw the current frame from video onto the canvas
+        // Dibujar el frame actual del video en el canvas
         ctx.drawImage(video, 0, 0, width, height);
 
-        // Convert canvas image to OpenCV matrix
+        // Procesar la imagen con OpenCV para detectar el documento
         let src = cv.imread(canvas);
         let gray = new cv.Mat();
         let edges = new cv.Mat();
         let contours = new cv.MatVector();
         let hierarchy = new cv.Mat();
 
-        // Convert to grayscale
+        // Convertir a escala de grises
         cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
-        // Detect edges using Canny
+        // Detectar bordes usando Canny
         cv.Canny(gray, edges, 50, 150);
 
-        // Find contours
+        // Encontrar contornos
         cv.findContours(edges, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
 
-        // Find the largest contour assuming it's the document
+        // Encontrar el contorno más grande (posiblemente el documento)
         let maxArea = 0;
         let largestContour;
         for (let i = 0; i < contours.size(); i++) {
@@ -77,14 +87,13 @@
             }
         }
 
-        // Approximate the contour to a quadrilateral
+        // Aproximar el contorno a un cuadrilátero
         let approx = new cv.Mat();
         if (largestContour) {
             cv.approxPolyDP(largestContour, approx, 0.02 * cv.arcLength(largestContour, true), true);
 
-            // Check if the quadrilateral is detected
+            // Verificar si se detectó un cuadrilátero
             if (approx.rows === 4) {
-                // Sort corners and apply perspective transform
                 const points = [];
                 for (let i = 0; i < 4; i++) {
                     points.push({
@@ -93,13 +102,13 @@
                     });
                 }
 
-                // Sort points to be top-left, top-right, bottom-right, bottom-left
-                points.sort((a, b) => a.y - b.y); // Sort by y coordinate
+                // Ordenar puntos y aplicar la transformación de perspectiva
+                points.sort((a, b) => a.y - b.y); // Ordenar por coordenada y
                 const topPoints = points.slice(0, 2).sort((a, b) => a.x - b.x);
                 const bottomPoints = points.slice(2).sort((a, b) => a.x - b.x);
                 const sortedPoints = [...topPoints, ...bottomPoints];
 
-                // Define source and destination points for the perspective transform
+                // Definir puntos de origen y destino para la transformación
                 const srcTri = cv.matFromArray(4, 1, cv.CV_32FC2, [
                     sortedPoints[0].x, sortedPoints[0].y,
                     sortedPoints[1].x, sortedPoints[1].y,
@@ -110,22 +119,25 @@
                     0, 0, width, 0, width, height, 0, height
                 ]);
 
-                // Apply perspective transform
+                // Aplicar transformación de perspectiva
                 const M = cv.getPerspectiveTransform(srcTri, dstTri);
                 const dst = new cv.Mat();
                 cv.warpPerspective(src, dst, M, new cv.Size(width, height));
 
-                // Display the result
+                // Mostrar la imagen procesada en el canvas
                 cv.imshow('canvasOutput', dst);
 
-                // Cleanup
+                // Liberar memoria de matrices
                 dst.delete(); M.delete(); srcTri.delete(); dstTri.delete();
             }
         }
 
-        // Cleanup remaining matrices
+        // Limpieza de las matrices restantes
         src.delete(); gray.delete(); edges.delete(); contours.delete(); hierarchy.delete(); approx.delete();
     }
+
+    document.getElementById('captureButton').addEventListener('click', captureAndProcess);
+    openCamera();
 </script>
 
 </body>
