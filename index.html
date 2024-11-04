@@ -1,1 +1,132 @@
-hola
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document Scanner with OpenCV.js</title>
+</head>
+<body>
+
+<h1>Document Scanner with OpenCV.js</h1>
+
+<!-- Video for camera feed -->
+<video id="video" autoplay playsinline style="display: none;"></video>
+<!-- Canvas to display the processed image -->
+<canvas id="canvasOutput"></canvas>
+<!-- Button to capture the document -->
+<button onclick="processImage()">Capture Document</button>
+
+<script async src="https://docs.opencv.org/4.x/opencv.js" type="text/javascript"></script>
+<script>
+    // Wait for OpenCV to load
+    function onOpenCvReady() {
+        console.log('OpenCV.js is ready');
+        initCamera();
+    }
+
+    // Initialize the camera
+    function initCamera() {
+        const video = document.getElementById('video');
+        navigator.mediaDevices.getUserMedia({ video: true }).then(stream => {
+            video.srcObject = stream;
+            video.play();
+        }).catch(error => {
+            console.error("Error accessing the camera:", error);
+        });
+    }
+
+    // Process the captured image to detect and adjust the document
+    function processImage() {
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('canvasOutput');
+        const ctx = canvas.getContext('2d');
+        const width = video.videoWidth;
+        const height = video.videoHeight;
+
+        // Set canvas size to match the video feed
+        canvas.width = width;
+        canvas.height = height;
+
+        // Draw the current frame from video onto the canvas
+        ctx.drawImage(video, 0, 0, width, height);
+
+        // Convert canvas image to OpenCV matrix
+        let src = cv.imread(canvas);
+        let gray = new cv.Mat();
+        let edges = new cv.Mat();
+        let contours = new cv.MatVector();
+        let hierarchy = new cv.Mat();
+
+        // Convert to grayscale
+        cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+        // Detect edges using Canny
+        cv.Canny(gray, edges, 50, 150);
+
+        // Find contours
+        cv.findContours(edges, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+
+        // Find the largest contour assuming it's the document
+        let maxArea = 0;
+        let largestContour;
+        for (let i = 0; i < contours.size(); i++) {
+            let contour = contours.get(i);
+            let area = cv.contourArea(contour, false);
+            if (area > maxArea) {
+                maxArea = area;
+                largestContour = contour;
+            }
+        }
+
+        // Approximate the contour to a quadrilateral
+        let approx = new cv.Mat();
+        if (largestContour) {
+            cv.approxPolyDP(largestContour, approx, 0.02 * cv.arcLength(largestContour, true), true);
+
+            // Check if the quadrilateral is detected
+            if (approx.rows === 4) {
+                // Sort corners and apply perspective transform
+                const points = [];
+                for (let i = 0; i < 4; i++) {
+                    points.push({
+                        x: approx.data32S[i * 2],
+                        y: approx.data32S[i * 2 + 1]
+                    });
+                }
+
+                // Sort points to be top-left, top-right, bottom-right, bottom-left
+                points.sort((a, b) => a.y - b.y); // Sort by y coordinate
+                const topPoints = points.slice(0, 2).sort((a, b) => a.x - b.x);
+                const bottomPoints = points.slice(2).sort((a, b) => a.x - b.x);
+                const sortedPoints = [...topPoints, ...bottomPoints];
+
+                // Define source and destination points for the perspective transform
+                const srcTri = cv.matFromArray(4, 1, cv.CV_32FC2, [
+                    sortedPoints[0].x, sortedPoints[0].y,
+                    sortedPoints[1].x, sortedPoints[1].y,
+                    sortedPoints[2].x, sortedPoints[2].y,
+                    sortedPoints[3].x, sortedPoints[3].y
+                ]);
+                const dstTri = cv.matFromArray(4, 1, cv.CV_32FC2, [
+                    0, 0, width, 0, width, height, 0, height
+                ]);
+
+                // Apply perspective transform
+                const M = cv.getPerspectiveTransform(srcTri, dstTri);
+                const dst = new cv.Mat();
+                cv.warpPerspective(src, dst, M, new cv.Size(width, height));
+
+                // Display the result
+                cv.imshow('canvasOutput', dst);
+
+                // Cleanup
+                dst.delete(); M.delete(); srcTri.delete(); dstTri.delete();
+            }
+        }
+
+        // Cleanup remaining matrices
+        src.delete(); gray.delete(); edges.delete(); contours.delete(); hierarchy.delete(); approx.delete();
+    }
+</script>
+
+</body>
+</html>
