@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Document Scanner with Camera</title>
+    <title>Improved Document Scanner</title>
     <style>
         #video, #canvasOutput {
             width: 100%;
@@ -24,11 +24,8 @@
 <body>
 
 <h2>Document Scanner</h2>
-<!-- Video element for camera preview -->
 <video id="video" autoplay playsinline></video>
-<!-- Canvas to display the scanned image -->
 <canvas id="canvasOutput"></canvas>
-<!-- Button to capture the document -->
 <button id="captureButton">Capture Document</button>
 <p id="error"></p>
 
@@ -39,15 +36,15 @@
             const video = document.getElementById('video');
             const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
             video.srcObject = stream;
-            alert("Camera opened successfully");  // Confirmación de que la cámara se abrió
+            alert("Camera opened successfully");
         } catch (error) {
             document.getElementById('error').textContent = "Error accessing the camera: " + error.message;
-            alert("Error accessing the camera: " + error.message); // Error de acceso a la cámara
+            alert("Error accessing the camera: " + error.message);
         }
     }
 
     function captureAndProcess() {
-        alert("Starting document capture process");  // Comienza el proceso de captura
+        alert("Starting document capture process");
 
         const video = document.getElementById('video');
         const canvas = document.getElementById('canvasOutput');
@@ -62,13 +59,19 @@
 
         let src = cv.imread(canvas);
         let gray = new cv.Mat();
+        let blurred = new cv.Mat();
         let edges = new cv.Mat();
         let contours = new cv.MatVector();
         let hierarchy = new cv.Mat();
 
+        // Convertir a escala de grises y desenfocar para mejorar la detección de bordes
         cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
-        cv.Canny(gray, edges, 50, 150);
+        cv.GaussianBlur(gray, blurred, new cv.Size(5, 5), 0);
+        
+        // Aplicar umbral adaptable para mejor detección en diferentes condiciones de luz
+        cv.adaptiveThreshold(blurred, edges, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY, 11, 2);
 
+        // Encontrar contornos
         cv.findContours(edges, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
 
         let maxArea = 0;
@@ -87,7 +90,7 @@
             cv.approxPolyDP(largestContour, approx, 0.02 * cv.arcLength(largestContour, true), true);
 
             if (approx.rows === 4) {
-                alert("Document detected, starting perspective transformation");  // Documento detectado
+                alert("Document detected, starting perspective transformation");
 
                 const points = [];
                 for (let i = 0; i < 4; i++) {
@@ -116,18 +119,24 @@
                 const dst = new cv.Mat();
                 cv.warpPerspective(src, dst, M, new cv.Size(width, height));
 
-                cv.imshow('canvasOutput', dst);
-                alert("Document capture complete. The document is cropped and adjusted!"); // Confirmación final
+                // Aplicar binarización y ajuste de contraste para simular un escaneo
+                let final = new cv.Mat();
+                cv.cvtColor(dst, final, cv.COLOR_RGBA2GRAY);
+                cv.adaptiveThreshold(final, final, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY, 11, 2);
 
-                dst.delete(); M.delete(); srcTri.delete(); dstTri.delete();
+                cv.imshow('canvasOutput', final);
+                alert("Document capture complete. The document is cropped, adjusted, and converted to black and white.");
+
+                // Limpiar
+                final.delete(); dst.delete(); M.delete(); srcTri.delete(); dstTri.delete();
             } else {
-                alert("Could not detect a quadrilateral shape for the document.");  // No se detectó cuadrilátero
+                alert("Could not detect a quadrilateral shape for the document.");
             }
         } else {
-            alert("No document detected.");  // No se detectó documento
+            alert("No document detected.");
         }
 
-        src.delete(); gray.delete(); edges.delete(); contours.delete(); hierarchy.delete(); approx.delete();
+        src.delete(); gray.delete(); blurred.delete(); edges.delete(); contours.delete(); hierarchy.delete(); approx.delete();
     }
 
     document.getElementById('captureButton').addEventListener('click', captureAndProcess);
