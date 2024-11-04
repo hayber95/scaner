@@ -37,45 +37,40 @@
     async function openCamera() {
         try {
             const video = document.getElementById('video');
-            // Solicitar acceso a la cámara
             const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
-            video.srcObject = stream;  // Mostrar el video en el elemento de video
+            video.srcObject = stream;
+            alert("Camera opened successfully");  // Confirmación de que la cámara se abrió
         } catch (error) {
-            // Mostrar un mensaje de error en caso de que falle el acceso a la cámara
             document.getElementById('error').textContent = "Error accessing the camera: " + error.message;
+            alert("Error accessing the camera: " + error.message); // Error de acceso a la cámara
         }
     }
 
     function captureAndProcess() {
+        alert("Starting document capture process");  // Comienza el proceso de captura
+
         const video = document.getElementById('video');
         const canvas = document.getElementById('canvasOutput');
         const ctx = canvas.getContext('2d');
         const width = video.videoWidth;
         const height = video.videoHeight;
 
-        // Configurar el tamaño del canvas para que coincida con el video
         canvas.width = width;
         canvas.height = height;
 
-        // Dibujar el frame actual del video en el canvas
         ctx.drawImage(video, 0, 0, width, height);
 
-        // Procesar la imagen con OpenCV para detectar el documento
         let src = cv.imread(canvas);
         let gray = new cv.Mat();
         let edges = new cv.Mat();
         let contours = new cv.MatVector();
         let hierarchy = new cv.Mat();
 
-        // Convertir a escala de grises
         cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
-        // Detectar bordes usando Canny
         cv.Canny(gray, edges, 50, 150);
 
-        // Encontrar contornos
         cv.findContours(edges, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
 
-        // Encontrar el contorno más grande (posiblemente el documento)
         let maxArea = 0;
         let largestContour;
         for (let i = 0; i < contours.size(); i++) {
@@ -87,13 +82,13 @@
             }
         }
 
-        // Aproximar el contorno a un cuadrilátero
         let approx = new cv.Mat();
         if (largestContour) {
             cv.approxPolyDP(largestContour, approx, 0.02 * cv.arcLength(largestContour, true), true);
 
-            // Verificar si se detectó un cuadrilátero
             if (approx.rows === 4) {
+                alert("Document detected, starting perspective transformation");  // Documento detectado
+
                 const points = [];
                 for (let i = 0; i < 4; i++) {
                     points.push({
@@ -102,13 +97,11 @@
                     });
                 }
 
-                // Ordenar puntos y aplicar la transformación de perspectiva
-                points.sort((a, b) => a.y - b.y); // Ordenar por coordenada y
+                points.sort((a, b) => a.y - b.y);
                 const topPoints = points.slice(0, 2).sort((a, b) => a.x - b.x);
                 const bottomPoints = points.slice(2).sort((a, b) => a.x - b.x);
                 const sortedPoints = [...topPoints, ...bottomPoints];
 
-                // Definir puntos de origen y destino para la transformación
                 const srcTri = cv.matFromArray(4, 1, cv.CV_32FC2, [
                     sortedPoints[0].x, sortedPoints[0].y,
                     sortedPoints[1].x, sortedPoints[1].y,
@@ -119,20 +112,21 @@
                     0, 0, width, 0, width, height, 0, height
                 ]);
 
-                // Aplicar transformación de perspectiva
                 const M = cv.getPerspectiveTransform(srcTri, dstTri);
                 const dst = new cv.Mat();
                 cv.warpPerspective(src, dst, M, new cv.Size(width, height));
 
-                // Mostrar la imagen procesada en el canvas
                 cv.imshow('canvasOutput', dst);
+                alert("Document capture complete. The document is cropped and adjusted!"); // Confirmación final
 
-                // Liberar memoria de matrices
                 dst.delete(); M.delete(); srcTri.delete(); dstTri.delete();
+            } else {
+                alert("Could not detect a quadrilateral shape for the document.");  // No se detectó cuadrilátero
             }
+        } else {
+            alert("No document detected.");  // No se detectó documento
         }
 
-        // Limpieza de las matrices restantes
         src.delete(); gray.delete(); edges.delete(); contours.delete(); hierarchy.delete(); approx.delete();
     }
 
